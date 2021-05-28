@@ -1,0 +1,1169 @@
+---
+title: "Projekt Statistik mit R (Gruppe A) - Mehrfaktorielle ANOVA"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Inhalt
+
+1) Einleitende Aufgaben
++ Bibliotheken laden
++ Daten laden und einen ersten Überblick verschaffen
++ Ordinalskalierte Variable sortieren und prüfen
+2) Beschreibung des Datensatz und der Fragestellungen
+3) Korrelation nach Bravais-Pearson
+4) t-Test für unabhängige Stichproben
+5) Mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+6) Anhang
+
+# Einleitende Aufgaben
+
+## Bibliotheken laden
+
+```{r warning=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(car)
+library(effsize)
+library(sjstats)# veraltet effectsize stattdessen
+library(effectsize)
+library(afex)
+library(RcmdrMisc)
+```
+
+
+## Daten laden und Überblick
+
+### Laden
+
+```{r warning=FALSE}
+dfroh <- read_csv("./StudentsPerformance.xls")
+```
+
+### Überblick
+
+```{r warning=FALSE}
+head(dfroh)
+```
+
+```{r warning=FALSE}
+tail(dfroh)
+```
+
+```{r warning=FALSE}
+describe(dfroh)
+```
+
+```{r warning=FALSE}
+summary(dfroh)
+```
+```{r warning=FALSE}
+str(dfroh)
+```
+
+```{r warning=FALSE}
+unique(dfroh$gender)
+unique(dfroh$`race/ethnicity`)
+unique(dfroh$`parental level of education`)
+unique(dfroh$lunch)
+unique(dfroh$`test preparation course`)
+```
+### Ordinalskalierte Variable sortieren und prüfen
+
+#### Ausgangszustand zum Vergleich
+
+```{r warning=FALSE}
+ggplot(dfroh, aes(x=`parental level of education`, y=dfroh$`math score`, group=gender, col=gender))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Bildungsgrad der Eltern", y="Mathematik Note [%]")+
+  theme_classic()+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+
+```{r warning=FALSE}
+
+dfroh$`parental level of education` <- factor(dfroh$`parental level of education`, 
+                                              levels =c("some high school", 
+                                                       "high school", 
+                                                       "some college",
+                                                       "associate's degree",
+                                                       "bachelor's degree",
+                                                       "master's degree"))
+```
+
+
+```{r warning=FALSE}
+dfroh <- dfroh %>% #pipe 
+           rename(Geschlecht      = 'gender',
+                  EthnischeHerkunft = 'race/ethnicity',
+                  Bildungsgrad_der_Eltern   = 'parental level of education',
+                  Mittagessen = 'lunch',
+                  Vorbereitungskurs = 'test preparation course',
+                  Mathematiknote = 'math score',
+                  Lesenote = 'reading score',
+                  Schreibnote = 'writing score')
+head(dfroh)
+```
+```{r warning=FALSE}
+#library(dplyr) #-> Rekodieren
+dfroh <- dfroh %>%
+mutate(Bildungsgrad_der_Eltern = factor(Bildungsgrad_der_Eltern,
+                                              levels =c("some high school", 
+                                                       "high school", 
+                                                       "some college",
+                                                       "associate's degree",
+                                                       "bachelor's degree",
+                                                       "master's degree"),
+labels = c("High School abgebrochen", "High School", "College abgebrochen", "Associate's Degree", "Bachelor's Degree", "Master's Degree")))
+```
+```{r warning=FALSE}
+dfroh <- dfroh %>%
+mutate(Geschlecht = factor(Geschlecht,
+                                              levels =c("female", 
+                                                       "male"),
+labels = c("F", "M")))
+head(dfroh)
+```
+```{r warning=FALSE}
+dfroh <- dfroh %>%
+mutate(EthnischeHerkunft = factor(EthnischeHerkunft,
+                                              levels =c("group A", 
+                                                       "group B",
+                                                       "group C",
+                                                       "group D",
+                                                       "group E"),
+labels = c("Gruppe A", "Gruppe B", "Gruppe C", "Gruppe D", "Gruppe E")))
+```
+
+```{r warning=FALSE}
+dfroh <- dfroh %>%
+mutate(Mittagessen = factor(Mittagessen,
+                                              levels =c("free/reduced", 
+                                                       "standard"),
+labels = c("kostenlos", "Standard")))
+```
+
+
+```{r warning=FALSE}
+dfroh <- dfroh %>%
+mutate(Vorbereitungskurs = factor(Vorbereitungskurs,
+                                              levels =c("none", 
+                                                       "completed"),
+labels = c("Kein", "Abgeschlossen")))
+```
+
+
+```{r warning=FALSE}
+str(dfroh)
+```
+
+```{r warning=FALSE}
+head(dfroh)
+```
+
+
+```{r warning=FALSE}
+ggplot(dfroh, aes(x=Bildungsgrad_der_Eltern, y=Mathematiknote, group=Geschlecht, col=Geschlecht))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Bildungsgrad der Eltern", y="Mathematik Note [%]")+
+  theme_classic()+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+# Beschreibung des Datensatz und der Fragestellung
+
+## Der Datensatz
+
+Der Datensatz ist ein fiktionaler Datensatz für Data Science Übungszwecke.
+Der Datensatz enthält Noten von 1000 Schülern in den Fächern: 
+
++ Mathematik,
++ Lesen und 
++ Schreiben 
+
+sowie diverse kategorielle Daten zum Hintergrund der Schüler, die einen Einfluß 
+auf die Noten der Schüler haben (könnten). Die Nominalskalierten Hintergrunddaten sind:
+
++ Geschlecht (M/W)
++ Rasse/Ethnischer Hintergrund (Gruppen A-E)
++ Kosten für Mittagessen (Kostenlos [Original Kostenlos oder reduziert als eine Kategorie] /Standard)
+
+Ordinalsklierte Hintergrunddaten sind:
+
++ Teilnahme an Vorbereitungskursen für die benoteten Tests (nicht/Abgeschlossen)
++ Bildungsgrad der Eltern (6 Stufen von High School abgebrochen bis Master's Degree)
+
+## Fragestellungen
+
+
+
+### Mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+Gibt es einen Zusammenhang zwischen der Mathematiknote, dem Geschlecht des Schülers bzw. der Schülerin sowie dem Bildungsgrad der Eltern?
+
+
+#  Mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+##  Mehrfaktorielle Varianzanalyse (ohne Messwiederholung) - unverfeinert
+
+0)  Kopie des Datensatz anlegen und bearbeiten
+1)	Grundlegende Konzepte
+2)	Hypothese 
+3)	Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung) 
+4)	Normalverteilung 
+5)	Boxplots
+6)	Deskriptive Statistiken 
+7)	Profildiagramm
+8)	Levene -Test 
+9)	Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+10)	Post-Hoc-Test
+
+## Verfeinerung des Modells I
+
+11)  Kopie des Datensatz anlegen und bearbeiten
+12)	Grundlegende Konzepte
+13)	Hypothese 
+14)	Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung) 
+15)	Normalverteilung 
+16)	Boxplots
+17)	Deskriptive Statistiken 
+18)	Profildiagramm
+19)	Levene -Test 
+20)	Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+21)	Post-Hoc-Test
+
+
+# Verfeinerung des Modell II
+
+22)  Kopie des Datensatz anlegen und bearbeiten
+23) Grundlegende Konzepte der mehrfaktorielle Varianzanalyse – Was ist das?
+24)	Hypothese 
+25)	Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung) 
+26)	Normalverteilung 
+27)	Boxplots
+28)	Deskriptive Statistiken 
+29)	Profildiagramm
+30)	Levene -Test 
+31)	Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+32)	Post-Hoc-Test
+33)	Berechnung der Effektstärke
+34) Eine Aussage
+35) Kopie des Datensatz löschen
+
+
+### Kopie des Datensatz anlegen und bearbeiten
+
+```{r warning=FALSE}
+df <- dfroh
+head(df)
+```
+
+
+```{r warning=FALSE}
+df$EthnischeHerkunft <- NULL
+df$Mittagessen <- NULL
+df$Vorbereitungskurs <- NULL
+df$Lesenote <- NULL
+df$Schreibnote <- NULL
+head(df)
+```
+
+```{r warning=FALSE}
+str(df)
+```
+
+
+### Grundlegende Konzepte der mehrfaktorielle Varianzanalyse – Was ist das?
+
+
+Die mehrfaktorielle Varianzanalyse untersucht, ob sich die Mittelwerte mehrerer unabhängiger Gruppenunterscheiden, die durch mehrere kategoriale unabhängige Variable definiert werden.
+Diese UV werden bei der ANOVA als "Faktoren" bezeichnet. Die Ausprägungen der unabhängigen Variable werden "Faktorstufen" genannt (eng."Treatments")
+
+Die "mehrfaktoriell" oder mindestens zweifaktoriell Varianzanalyse wird bei mehr als einen Faktor, also mehrere Gruppierungsvariablen, verwendet (vgl. einfaktorielle Varianzanalyse). Der Begriff "Varianzanalyse" wird auch"ANOVA" abgekürzt, da sie in Englisch mit "Analysis of variance" steht.
+
+Die Idee der Varianzanalyse besteht in der Zerlegung der Varianz der abhängigen Variable. Die Gesamtvarianz setzt sich aus der "Varianz innerhalb der Gruppen" und der "Varianz zwischen den Gruppen" zusammen.
+Bei einer mehrfaktoriellen Varianzanalyse wird die Varianz zwischen den Gruppen weiter aufgegliedert, und zwar in die Varianz der einzelnen Faktoren und die Varianz der Interaktion(en) der Faktoren.
+Im Rahmen einer Varianzanalyse wird die Varianz zwischen den Gruppen mit der Varianz innerhalb der Gruppen verglichen.Die Fragestellung der mehrfaktoriellen Varianzanalyse könnte sein: "Unterscheiden sich die Mittelwerte einer abhängigen Variable zwischen mehreren Gruppen? Welche Faktorstufen unterscheiden sich? Gibt es Effekte?" 
+
+
+### Hypothese
+
+
++ Haupteffekt A
+  + H1:Es gibt einen Unterschied zwischen dem Geschlecht und der Mathematiknote. 
+  + H0:Es gibt keinen Unterschied zwischen dem Geschlecht und der Mathematiknote.
+
++ Haupteffekt B
+  + H1:Es gibt einen Unterschied zwischen dem Bildungsgrad der Eltern und der 
+  Mathematiknote.
+  + H0:Es gibt keinen Unterschied zwischen dem Bildungsgrad der Eltern und der 
+  Mathematiknote. 
+
++ Interaktion AxB
+  + H1:Es gibt einen Unterschied zwischen dem Geschlecht in Verbindung mit dem  Bildungsgrad der Eltern und der 
+  Mathematiknote. 
+  + H0:Es gibt keinen Unterschied zwischen dem Geschlecht in Verbindung mit dem  Bildungsgrad der Eltern und der 
+  Mathematiknote.
+
+### Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+
++ Die abhängige Variable (Mathematikote) ist mindestens intervallskaliert (Ratioskaliert 0-100%) -> OK
++ Die unabhängigen Variablen (Geschlecht (Nominalskala) und Bildungsgrad der Eltern (Ordinalskala)) sind kategorial  -> OK
++ Die durch die Faktoren gebildeten Gruppen sind unabhängig -> Entweder weiblich/männlich, bzw. Bildungsgrad der Eltern ->OK
++ Die abhängige Variablen ist normalverteilt innerhalb jeder der Gruppen bzw. ab 25 Probanden pro Gruppe sind Verletzungen dieser Voraussetzung unproblematisch -> siehe Histogramm
++ Homogenität der Varianzen: Die Gruppen stammen aus Grundgesamtheiten mit annähernd identischen Varianzen der abhängigen Variablen -> siehe Levene-Test
+
+
+### Normalverteilung
+
+#### Histogramme
+
+
+```{r warning=FALSE}
+df %>%
+  group_by(Geschlecht) %>%
+  ggplot(aes(Mathematiknote, color=Geschlecht)) + 
+  geom_histogram(aes(fill = Geschlecht), bins = 15) +
+  facet_wrap(~Geschlecht) +
+  theme_grey()+
+  labs(x= "Mathematiknote [%]",y = "Anzahl" )
+```
+In den Histogrammen ist die Normalverteilung schön zu erkennen.
+
+```{r warning=FALSE}
+df %>%
+  group_by(Bildungsgrad_der_Eltern) %>%
+  ggplot(aes(Mathematiknote, color=Bildungsgrad_der_Eltern)) + 
+  geom_histogram(aes(fill = Bildungsgrad_der_Eltern), bins = 15) +
+  facet_wrap(~Bildungsgrad_der_Eltern) +
+  theme_grey()+
+  labs(x= "Mathematiknote [%]",y = "Anzahl" )
+```
+
+Die Daten sind  normalverteilt.
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Mathematiknote))+
+geom_histogram(bins = 15)+
+theme_grey()+
+facet_wrap(vars(Geschlecht, Bildungsgrad_der_Eltern), ncol = 4)
+```
+
+Die Daten der meisten Gruppen sind normalverteilt. Da die ANOVA ein robustes Verfahren ist,
+Können bei Gruppen mit mindestens 25 Probanden Abweichungen von der Normalverteilung toleriert werden.
+Lediglich die Gruppe der männlichen Schüler mit Eltern, die einen Maters Degree haben, hat weniger als 
+25 Mitglieder. Daher wird hier nocheinmal in einem QQ-Plot gesondert geprüft.
+
+#### QQ-Plot
+
+```{r warning=FALSE}
+dft<- subset(df, Bildungsgrad_der_Eltern=="Master's Degree"& Geschlecht =="M")
+#View(dft)
+qqPlot(dft$Mathematiknote)
+```
+
+Die Gruppe der männlichen Schüler mit Eltern, die einen Maters Degree haben, ist normalverteilt und 
+die mehrfaktorielle ANOVA darf durchgeführt werden, wenn der Leven Test Varianzhomogenität ergibt.
+
+###	Boxplots
+
+
+```{r warning=FALSE}
+ggplot(df, aes(Bildungsgrad_der_Eltern, Mathematiknote, fill=factor(Geschlecht))) +
+geom_boxplot() +
+theme_minimal()+
+labs(fill = "Geschlecht", x="Bildungsgrad der Eltern", y="Mathematiknote [%]")+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+```{r warning=FALSE}
+ggplot(df, aes(Geschlecht, Mathematiknote, fill=factor(Bildungsgrad_der_Eltern))) +
+geom_boxplot() +
+theme_minimal()+
+labs(fill = "Bildungsgrad der Elotern", x="Geschlecht", y="Mathematiknote [%]")
+```
+
+In den Boxplot finden sich einzelne Ausreißer.
+
+### Deskriptive Statistiken 
+
+```{r warning=FALSE}
+df %>%
+group_by(Geschlecht) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+Die weiblichen Schülerinnen haben ein etwas niedrigeres Ergebnis (M=63.63, sd=15.49) 
+als die männlichen Schüler (M=68.73, sd=14.36) im Mathematiktest erzielt.
+
+```{r warning=FALSE}
+df %>%
+group_by(Bildungsgrad_der_Eltern) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+Die Schüler, deren Eltern einen High School Abschluss haben, hatten den niedrigsten Notendurchschnitt (M=62,14, sd=14,54).
+Die Schüler, deren Eltern einen High School abgebrochen  haben, hatten den  Notendurchschnitt (M=63,5, sd=15,93).
+Die Schüler, deren Eltern einen College abgebrochen  haben, hatten den  Notendurchschnitt (M=67,13, sd=14,31).
+Die Schüler, deren Eltern einen Associate's Degree Abschluss haben, hatten den  Notendurchschnitt (M=67,88, sd=15,11).
+Die Schüler, deren Eltern einen Bachelor's Degree Abschluss haben, hatten den  Notendurchschnitt (M=69,39, sd=14,94).
+Die Schüler, deren Eltern einen Master's Degree Abschluss haben, hatten den höchsten  Notendurchschnitt (M=69,75, sd=15,15).
+
+
+```{r warning=FALSE}
+df %>%
+group_by(Geschlecht, Bildungsgrad_der_Eltern) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+Die weiblichen Schülerinnen, deren Eltern einen High School abgebrochen  haben, hatten den niedrigsten  Notendurchschnitt (M=59,3, sd=16,96).
+Die weiblichen Schülerinnen, deren Eltern einen High School Abschluss haben, hatten den   Notendurchschnitt (M=59,35, sd=15,12).
+Die männlichen Schüler, deren Eltern einen High School Abschluss haben, hatten den   Notendurchschnitt (M=64,71, sd=13,55).
+Die weiblichen Schülerinnen, deren Eltern einen Associate's Degree Abschluss haben, hatten den   Notendurchschnitt (M=65,25, sd=14,88).
+Die weiblichen Schülerinnen, deren Eltern einen College abgebrochen Abschluss haben, hatten den   Notendurchschnitt (M=65,41, sd=13,71).
+Die weiblichen Schülerinnen, deren Eltern einen Master's Degree Abschluss haben, hatten den   Notendurchschnitt (M=66,5, sd=15,58).
+Die männlichen Schüler, deren Eltern einen High School abgebrochen Abschluss haben, hatten den   Notendurchschnitt (M=67,84, sd=13,57).
+Die weiblichen Schülerinnen, deren Eltern einen Bachelor's Degree Abschluss haben, hatten den   Notendurchschnitt (M=68,35, sd=15,64).
+Die männlichen Schüler, deren Eltern einen College abgebrochen Abschluss haben, hatten den   Notendurchschnitt (M=69,01, sd=14,77).
+Die männlichen Schüler, deren Eltern einen Bachelor's Degree Abschluss haben, hatten den   Notendurchschnitt (M=70,58, sd=14,16).
+Die männlichen Schüler, deren Eltern einen Associate's Degree Abschluss haben, hatten den   Notendurchschnitt (M=70,76, sd=14,91).
+Die männlichen Schüler, deren Eltern einen Master's Degree Abschluss haben, hatten den höchsten  Notendurchschnitt (M=74,83, sd=13,23).
+
+
+### Profildiagramm
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Geschlecht, y=Mathematiknote, group=Bildungsgrad_der_Eltern, col=Bildungsgrad_der_Eltern))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Geschlecht", y="Mathematiknote [%]")+
+  theme_classic()
+```
+
+
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Bildungsgrad_der_Eltern, y=Mathematiknote, group=Geschlecht, col=Geschlecht))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Bildungsgrad der Eltern", y="Mathematiknote [%]")+
+  theme_classic()+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+
+### Levene -Test 
+
+
+Der Levene-Test prüft die Nullhypothese, dass die Varianzen der Gruppen sich nicht unterscheiden. Ist der Levene-Test nicht signifikant, so kann von homogenen Varianzen ausgegangen. Wäre der Levene-Test jedoch signifikant, so wäre eine der Grundvoraussetzungen der Varianzanalyse verletzt. Gegen leichte Verletzungen gilt die Varianzanalyse als robust; vor allem bei genügend grossen und etwa gleich grossen Gruppen sind Verletzungen nicht problematisch. Bei ungleich grossen Gruppen führt eine starke Verletzung der Varianzhomogenität zu einer Verzerrung des F-Tests. Alternativ können dann auf den Brown-Forsythe-Test oder den Welch-Test zurückgegriffen werden. Dabei handelt es sich um adjustierte F-Tests.
+
+```{r warning=FALSE}
+leveneTest(Mathematiknote ~ Geschlecht*Bildungsgrad_der_Eltern, data = df, center = "mean")
+```
+Der Levene-Test ist nicht signifikant (F(11, 988) = 0.9626, p =0.479 >0.05 ), 
+so dass von Varianzhomogenität ausgegangen werden kann. Auf die Welch-Korrektur kann verzichtet werden.
+
+## Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+```{r warning=FALSE}
+ANOVAl <- lm(Mathematiknote ~  Geschlecht*Bildungsgrad_der_Eltern, data = df)
+ANOVA <- Anova(ANOVAl  , type = 3)
+ANOVA
+```
+
+Sowohl das Geschlecht (F(1, 988)= 15.0651 , p=0.0001108 =.000), als auch der Bildungsgrad der Eltern (F(1, 988)= 5.3566 , p=7.244e-05 =.000) sind signifikant für die Prüfungsnoten in Mathematik. Der Interaktionsterm ist nicht signifikant (F(1, 988)= 0.9592 , p=0.4418181). Die einzelen Paarwechselwirkungen sind im Post-Hoc- Test zu untersuchen.
+
+## Post-Hoc-Test
+
+```{r warning=FALSE}
+TukeyHSD(aov(Mathematiknote ~Geschlecht*Bildungsgrad_der_Eltern, data = df))
+```
+
+Der Post- Hoc Test nach Tukey zeigt einen signifikante Zusammenhang zwischen dem Geschlecht und der Mathematiknote (p=1e-07=.000).
+
+Die Hälfte der Bildunggradkombinationen ergeben keinen signifikanten Zusammenhang zwischen Bildungsgrad der Eltern und der Mathematiknote der Schüler:
+
+Zwischen der AbschlussKombination Master's Degree-Bachelor's Degree und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,9995736).
+Zwischen der AbschlussKombination Associate's Degree-College abgebrochen und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,9943237).
+Zwischen der AbschlussKombination Bachelor's Degree-Associate's Degree und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,9379807).
+Zwischen der AbschlussKombination High School-High School abgebrochen und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,9213712).
+Zwischen der AbschlussKombination Master's Degree-Associate's Degree und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,8929168).
+Zwischen der AbschlussKombination Bachelor's Degree-College abgebrochen und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,7341976).
+Zwischen der AbschlussKombination Master's Degree-College abgebrochen und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,7121962).
+Zwischen der AbschlussKombination College abgebrochen-High School abgebrochen und der Mathematiknote des Kinds gibt es keinen signifikanten Zusammenhang (p=0,1214336).
+
+
+Zwischen der AbschlussKombination Associate's Degree-High School abgebrochen und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0315923).
+Zwischen der AbschlussKombination Master's Degree-High School abgebrochen und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0273517).
+Zwischen der AbschlussKombination Bachelor's Degree-High School abgebrochen und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0076963).
+Zwischen der AbschlussKombination College abgebrochen-High School und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0041284).
+Zwischen der AbschlussKombination Master's Degree-High School und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0022572).
+Zwischen der AbschlussKombination Associate's Degree-High School und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0005547).
+Zwischen der AbschlussKombination Bachelor's Degree-High School und der Mathematiknote des Kinds gibt es einen signifikanten Zusammenhang (p=0,0001832).
+
+Das Modell muß abgeändert werden. Es werden 3 Gruppen gebildet:
+
++ High School aus High School abgebrochen und High School
++ College aus Associate's Degree, Bachelor's Degree, Master's Degree
++ College abgebrochen hat sowohl keine Signifikante Unterschiede mit der (original) Gruppe 
+High School als auch mit allen Mitgliedern der neu gebildeten Gruppe College.
++ Es ist also nicht vollkommen klar, wie College abgebrochen zuzuordnen ist. Ein Verfeinerungsschritt mit College abgeschlossen als eigenständige Gruppe wird durchgeführt. Eine Zuordnung zur Gruppe College ist erwartet.
+
+##  Verfeinerung des Modells I
+
+11)  Kopie des Datensatz anlegen und bearbeiten
+12)	Grundlegende Konzepte
+13)	Hypothese 
+14)	Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung) 
+15)	Normalverteilung 
+16)	Boxplots
+17)	Deskriptive Statistiken 
+18)	Profildiagramm
+19)	Levene -Test 
+20)	Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+21)	Post-Hoc-Test
+
+### Kopie des Datensatz anlegen und bearbeiten
+
+```{r warning=FALSE}
+df <- dfroh
+head(df)
+```
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="High School abgebrochen"] <-"High School"
+head(df)
+str(df)
+```
+
+```{r warning=FALSE}
+unique(df$Bildungsgrad_der_Eltern)
+```
+
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="Bachelor's Degree"] <-"College"
+head(df)
+str(df)
+```
+
+
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="Master's Degree"] <-"College"
+head(df)
+str(df)
+```
+
+
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="Associate's Degree"] <-"College"
+head(df)
+str(df)
+```
+
+
+```{r warning=FALSE}
+unique(df$Bildungsgrad_der_Eltern)
+str(df)
+```
+
+
+```{r warning=FALSE}
+df$EthnischeHerkunft <- NULL
+df$Mittagessen <- NULL
+df$Vorbereitungskurs <- NULL
+df$Lesenote <- NULL
+df$Schreibnote <- NULL
+head(df)
+```
+
+```{r warning=FALSE}
+str(df)
+```
+
+
+### Grundlegende Konzepte
+
+
+Die mehrfaktorielle Varianzanalyse untersucht, ob sich die Mittelwerte mehrerer unabhängiger Gruppenunterscheiden, die durch mehrere kategoriale unabhängige Variable definiert werden.
+Diese UV werden bei der ANOVA als "Faktoren" bezeichnet. Die Ausprägungen der unabhängigen Variable werden "Faktorstufen" genannt (eng."Treatments")
+
+Die "mehrfaktoriell" oder mindestens zweifaktoriell Varianzanalyse wird bei mehr als einen Faktor, also mehrere Gruppierungsvariablen, verwendet (vgl. einfaktorielle Varianzanalyse). Der Begriff "Varianzanalyse" wird auch"ANOVA" abgekürzt, da sie in Englisch mit "Analysis of variance" steht.
+
+Die Idee der Varianzanalyse besteht in der Zerlegung der Varianz der abhängigen Variable. Die Gesamtvarianz setzt sich aus der "Varianz innerhalb der Gruppen" und der "Varianz zwischen den Gruppen" zusammen.
+Bei einer mehrfaktoriellen Varianzanalyse wird die Varianz zwischen den Gruppen weiter aufgegliedert, und zwar in die Varianz der einzelnen Faktoren und die Varianz der Interaktion(en) der Faktoren.
+Im Rahmen einer Varianzanalyse wird die Varianz zwischen den Gruppen mit der Varianz innerhalb der Gruppen verglichen.Die Fragestellung der mehrfaktoriellen Varianzanalyse könnte sein: "Unterscheiden sich die Mittelwerte einer abhängigen Variable zwischen mehreren Gruppen? Welche Faktorstufen unterscheiden sich? Gibt es Effekte?" 
+
+
+### Hypothese
+
+
++ Haupteffekt A
+  + H1:Es gibt einen Unterschied zwischen dem Geschlecht und der Mathematiknote.
+  + H0:Es gibt keinen Unterschied zwischen dem Geschlecht und der Mathematiknote. 
+
++ Haupteffekt B
+  + H1:Es gibt einen Unterschied zwischen dem Bildungsgrad der Eltern und der 
+  Mathematiknote. 
+  + H0:Es gibt keinen Unterschied zwischen dem Bildungsgrad der Eltern und der 
+  Mathematiknote.
+
++ Interaktion AxB
+  + H1:Es gibt einen Unterschied zwischen dem Geschlecht in Verbindung mit dem  Bildungsgrad der Eltern und der 
+  Mathematiknote. 
+  + H0:Es gibt keinen Unterschied zwischen dem Geschlecht in Verbindung mit dem  Bildungsgrad der Eltern und der 
+  Mathematiknote. 
+
+## Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+
++ Die abhängige Variable (Mathematikote) ist mindestens intervallskaliert (Ratioskaliert 0-100%) -> OK
++ Die unabhängigen Variablen (Geschlecht (Nominalskala) und Bildungsgrad der Eltern (Ordinalskala)) sind kategorial  -> OK
++ Die durch die Faktoren gebildeten Gruppen sind unabhängig -> Entweder weiblich/männlich, bzw. Bildungsgrad der Eltern ->OK
++ Die abhängige Variablen ist normalverteilt innerhalb jeder der Gruppen bzw. ab 25 Probanden pro Gruppe sind Verletzungen dieser Voraussetzung unproblematisch -> siehe Histogramm
++ Homogenität der Varianzen: Die Gruppen stammen aus Grundgesamtheiten mit annähernd identischen Varianzen der abhängigen Variablen -> siehe Levene-Test
+
+
+## Normalverteilung
+
+#### Histogramme
+
+
+```{r warning=FALSE}
+df %>%
+  group_by(Geschlecht) %>%
+  ggplot(aes(Mathematiknote, color=Geschlecht)) + 
+  geom_histogram(aes(fill = Geschlecht), bins = 15) +
+  facet_wrap(~Geschlecht) +
+  theme_grey()+
+  labs(x= "Mathematiknote [%]",y = "Anzahl" )
+```
+
+```{r warning=FALSE}
+df %>%
+  group_by(Bildungsgrad_der_Eltern) %>%
+  ggplot(aes(Mathematiknote, color=Bildungsgrad_der_Eltern)) + 
+  geom_histogram(aes(fill = Bildungsgrad_der_Eltern), bins = 15) +
+  facet_wrap(~Bildungsgrad_der_Eltern) +
+  theme_grey()+
+  labs(x= "Mathematiknote [%]",y = "Anzahl" )
+```
+
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Mathematiknote))+
+geom_histogram(bins = 15)+
+theme_grey()+
+facet_wrap(vars(Geschlecht, Bildungsgrad_der_Eltern), ncol = 4)
+```
+
+
+
+
+###	Boxplots
+
+
+```{r warning=FALSE}
+ggplot(df, aes(Bildungsgrad_der_Eltern, Mathematiknote, fill=factor(Geschlecht))) +
+geom_boxplot() +
+theme_minimal()+
+labs(fill = "Geschlecht", x="Bildungsgrad der Eltern", y="Mathematiknote [%]")+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+```{r warning=FALSE}
+ggplot(df, aes(Geschlecht, Mathematiknote, fill=factor(Bildungsgrad_der_Eltern))) +
+geom_boxplot() +
+theme_minimal()+
+labs(fill = "Bildungsgrad der Elotern", x="Geschlecht", y="Mathematiknote [%]")
+```
+
+### Deskriptive Statistiken 
+
+```{r warning=FALSE}
+df %>%
+group_by(Geschlecht) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+```{r warning=FALSE}
+df %>%
+group_by(Bildungsgrad_der_Eltern) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+
+```{r warning=FALSE}
+df %>%
+group_by(Geschlecht, Bildungsgrad_der_Eltern) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+### Profildiagramm
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Geschlecht, y=Mathematiknote, group=Bildungsgrad_der_Eltern, col=Bildungsgrad_der_Eltern))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Geschlecht", y="Mathematiknote [%]")+
+  theme_classic()
+```
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Bildungsgrad_der_Eltern, y=Mathematiknote, group=Geschlecht, col=Geschlecht))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Bildungsgrad der Eltern", y="Mathematiknote [%]")+
+  theme_classic()+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+### Levene -Test 
+
+
+Der Levene-Test prüft die Nullhypothese, dass die Varianzen der Gruppen sich nicht unterscheiden. Ist der Levene-Test nicht signifikant, so kann von homogenen Varianzen ausgegangen. Wäre der Levene-Test jedoch signifikant, so wäre eine der Grundvoraussetzungen der Varianzanalyse verletzt. Gegen leichte Verletzungen gilt die Varianzanalyse als robust; vor allem bei genügend grossen und etwa gleich grossen Gruppen sind Verletzungen nicht problematisch. Bei ungleich grossen Gruppen führt eine starke Verletzung der Varianzhomogenität zu einer Verzerrung des F-Tests. Alternativ können dann auf den Brown-Forsythe-Test oder den Welch-Test zurückgegriffen werden. Dabei handelt es sich um adjustierte F-Tests.
+
+```{r warning=FALSE}
+leveneTest(Mathematiknote ~ Geschlecht*Bildungsgrad_der_Eltern, data = df, center = "mean")
+```
+Der Levene-Test ist nicht signifikant (F(5, 994) = 1.3118 , p =0.2566 >0.05 ), 
+so dass von Varianzhomogenität ausgegangen werden kann. Auf die Welch-Korrektur kann verzichtet werden.
+
+### Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+```{r warning=FALSE}
+ANOVAl <- lm(Mathematiknote ~  Geschlecht*Bildungsgrad_der_Eltern, data = df)
+ANOVA <- Anova(ANOVAl  , type = 3)
+ANOVA
+```
+
+
+
+### Post-Hoc-Test
+
+```{r warning=FALSE}
+TukeyHSD(aov(Mathematiknote ~Geschlecht*Bildungsgrad_der_Eltern, data = df))
+```
+
++ College - College abgebrochen hat keinen signifikanten Unterschied und kann zur endgültigen Verfeinerung des Modells zusammengefasst werden.
+
+#  Verfeinerung des Modell II
+
+22)  Kopie des Datensatz anlegen und bearbeiten
+23)	Grundlegende Konzepte
+24)	Hypothese 
+25)	Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung) 
+26)	Normalverteilung 
+27)	Boxplots
+28)	Deskriptive Statistiken 
+29)	Profildiagramm
+30)	Levene -Test 
+31)	Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+32)	Post-Hoc-Test
+33)	Berechnung der Effektstärke
+34) Eine Aussage
+35) Kopie des Datensatz löschen
+
+## Kopie des Datensatz anlegen und bearbeiten
+
+```{r warning=FALSE}
+df <- dfroh
+head(df)
+```
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="High School abgebrochen"] <-"High School"
+head(df)
+str(df)
+```
+
+```{r warning=FALSE}
+unique(df$Bildungsgrad_der_Eltern)
+```
+
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="Bachelor's Degree"] <-"College"
+head(df)
+str(df)
+```
+
+### Zusammenlegen der Gruppen
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="Master's Degree"] <-"College"
+head(df)
+str(df)
+```
+
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="College abgebrochen"] <-"College"
+head(df)
+str(df)
+```
+
+
+```{r warning=FALSE}
+levels(df$Bildungsgrad_der_Eltern)[levels(df$Bildungsgrad_der_Eltern)=="Associate's Degree"] <-"College"
+head(df)
+str(df)
+```
+
+
+```{r warning=FALSE}
+unique(df$Bildungsgrad_der_Eltern)
+str(df)
+```
+
+
+```{r warning=FALSE}
+df$EthnischeHerkunft <- NULL
+df$Mittagessen <- NULL
+df$Vorbereitungskurs <- NULL
+df$Lesenote <- NULL
+df$Schreibnote <- NULL
+head(df)
+```
+
+```{r warning=FALSE}
+str(df)
+```
+
+```{r warning=FALSE}
+write.csv(df,"export.csv", row.names = FALSE)
+```
+
+
+## Grundlegende Konzepte
+
+
+Die mehrfaktorielle Varianzanalyse untersucht, ob sich die Mittelwerte mehrerer unabhängiger Gruppenunterscheiden, die durch mehrere kategoriale unabhängige Variable definiert werden.
+Diese UV werden bei der ANOVA als "Faktoren" bezeichnet. Die Ausprägungen der unabhängigen Variable werden "Faktorstufen" genannt (eng."Treatments")
+
+Die "mehrfaktoriell" oder mindestens zweifaktoriell Varianzanalyse wird bei mehr als einen Faktor, also mehrere Gruppierungsvariablen, verwendet (vgl. einfaktorielle Varianzanalyse). Der Begriff "Varianzanalyse" wird auch"ANOVA" abgekürzt, da sie in Englisch mit "Analysis of variance" steht.
+
+Die Idee der Varianzanalyse besteht in der Zerlegung der Varianz der abhängigen Variable. Die Gesamtvarianz setzt sich aus der "Varianz innerhalb der Gruppen" und der "Varianz zwischen den Gruppen" zusammen.
+Bei einer mehrfaktoriellen Varianzanalyse wird die Varianz zwischen den Gruppen weiter aufgegliedert, und zwar in die Varianz der einzelnen Faktoren und die Varianz der Interaktion(en) der Faktoren.
+Im Rahmen einer Varianzanalyse wird die Varianz zwischen den Gruppen mit der Varianz innerhalb der Gruppen verglichen.Die Fragestellung der mehrfaktoriellen Varianzanalyse könnte sein: "Unterscheiden sich die Mittelwerte einer abhängigen Variable zwischen mehreren Gruppen? Welche Faktorstufen unterscheiden sich? Gibt es Effekte?" 
+
+
+## Hypothese
+
+
++ Haupteffekt A
+  + H1:Es gibt einen Unterschied zwischen dem Geschlecht und der Mathematiknote. $M_{M}\neq M_{F}$
+  + H0:Es gibt keinen Unterschied zwischen dem Geschlecht und der Mathematiknote. $M_{M}=M_{F}$
+
+
++ Haupteffekt B
+  + H1:Es gibt einen Unterschied zwischen dem Bildungsgrad der Eltern und der 
+  Mathematiknote. $M_{College}\neq M_{High School}$
+  + H0:Es gibt keinen Unterschied zwischen dem Bildungsgrad der Eltern und der 
+  Mathematiknote. $M_{College}=  M_{High School}$
+  + Die im original Datensatz vorhandenen Bildungskategorien wurden zu 2 Kategorien zusammengelegt
+    + High School (aus High School und High School abgebrochen)
+    + College (aus College abgebrochen, Associate's Degree, Bachelor's Degree sowie Master's Degree)
+
++ Interaktion AxB
+  + H1:Es gibt einen Unterschied zwischen dem Geschlecht in Verbindung mit dem  Bildungsgrad der Eltern und der 
+  Mathematiknote. $M_{ij} ≠ M_i + M_j − M$ was gleichbedeutend damit ist, dass mindestens ein μij ≠ μ
+  + H0:Es gibt keinen Unterschied zwischen dem Geschlecht in Verbindung mit dem  Bildungsgrad der Eltern und der 
+  Mathematiknote. $M_{ij} = M_i + M_j − M$ was gleichbedeutend damit ist, dass alle μij gleich ausfallen
+
+## Voraussetzungen für die mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+
++ Die abhängige Variable (Mathematikote) ist mindestens intervallskaliert (Ratioskaliert 0-100%) -> OK
++ Die unabhängigen Variablen (Geschlecht (Nominalskala) und Bildungsgrad der Eltern (Ordinalskala)) sind kategorial  -> OK
++ Die durch die Faktoren gebildeten Gruppen sind unabhängig -> Entweder weiblich/männlich, bzw. Bildungsgrad der Eltern ->OK
++ Die abhängige Variablen ist normalverteilt innerhalb jeder der Gruppen bzw. ab 25 Probanden pro Gruppe sind Verletzungen dieser Voraussetzung unproblematisch -> siehe Histogramm -> OK
++ Homogenität der Varianzen: Die Gruppen stammen aus Grundgesamtheiten mit annähernd identischen Varianzen der abhängigen Variablen -> siehe Levene-Test -> OK
+
+
+## Normalverteilung
+
+### Histogramme
+
+
+```{r warning=FALSE}
+df %>%
+  group_by(Geschlecht) %>%
+  ggplot(aes(Mathematiknote, color=Geschlecht)) + 
+  geom_histogram(aes(fill = Geschlecht), bins = 15) +
+  facet_wrap(~Geschlecht) +
+  theme_grey()+
+  labs(x= "Mathematiknote [%]",y = "Anzahl" )
+```
+
+
+
+```{r warning=FALSE}
+df %>%
+  group_by(Bildungsgrad_der_Eltern) %>%
+  ggplot(aes(Mathematiknote, color=Bildungsgrad_der_Eltern)) + 
+  geom_histogram(aes(fill = Bildungsgrad_der_Eltern), bins = 15) +
+  facet_wrap(~Bildungsgrad_der_Eltern) +
+  theme_grey()+
+  labs(x= "Mathematiknote [%]",y = "Anzahl" )
+```
+
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Mathematiknote))+
+geom_histogram(bins = 15)+
+theme_grey()+
+facet_wrap(vars(Geschlecht, Bildungsgrad_der_Eltern), ncol = 4)
+```
+
+Man sieht in allen Histogrammen des Datensatz schöne Normalverteilungen. 
+Alle Gruppen haben deutlich mehr als 25 Schüler und die Vorbedingung zur ANOVA wäre auch ohne Normalverteilung erfüllt.
+
+```{r warning=FALSE}
+#describeBy(df$Mathematiknote, group=c(df$Geschlecht, df$Bildungsgrad_der_Eltern))
+```
+
+https://rdrr.io/cran/psych/man/describe.by.html
+
+##	Boxplots
+
+
+```{r warning=FALSE}
+ggplot(df, aes(Bildungsgrad_der_Eltern, Mathematiknote, fill=factor(Geschlecht))) +
+geom_boxplot() +
+theme_minimal()+
+labs(fill = "Geschlecht", x="Bildungsgrad der Eltern", y="Mathematiknote [%]")+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+```{r warning=FALSE}
+ggplot(df, aes(Geschlecht, Mathematiknote, fill=factor(Bildungsgrad_der_Eltern))) +
+geom_boxplot() +
+theme_minimal()+
+labs(fill = "Bildungsgrad der Elotern", x="Geschlecht", y="Mathematiknote [%]")
+```
+
+Es gibt vereinzelte Ausreißer. Egibt Überschneidungen zwischen den Boxplots.
+
+## Deskriptive Statistiken 
+
+```{r warning=FALSE}
+df %>%
+group_by(Geschlecht) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+Die weiblichen Schülerinnen haben ein etwas niedrigeres Ergebnis (M=63.63, sd=15.49, n=518) 
+als die männlichen Schüler (M=68.73, sd=14.36, n=482) im Mathematiktest erzielt.
+
+```{r warning=FALSE}
+df %>%
+group_by(Bildungsgrad_der_Eltern) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+Die Schüler deren Eltern zur Gruppe High School gehören haben in Matehmatik eine schlechtere Note (M=62.79, sd=15.21, n=375) als
+Schüler, deren Eltern ein College besucht haben (M=68.07, sd=14.80, n=625)
+
+```{r warning=FALSE}
+df %>%
+group_by(Geschlecht, Bildungsgrad_der_Eltern) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Mathematiknote), Median = median(Mathematiknote), Standardabweichung = sd(Mathematiknote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+Die weiblichen Schülerinnen, deren Eltern zur Gruppe High School  gehören, hatten den niedrigsten  Notendurchschnitt (M=59,32, sd=16,01, n=185).
+Die weiblichen Schülerinnen, deren Eltern zur Gruppe College  gehören, hatten den  Notendurchschnitt (M=66,03, sd=14,68, n=333).
+Die männlichen Schüler, deren Eltern zur Gruppe High School  gehören, hatten den  Notendurchschnitt (M=66,16, sd=13,61, n=190).
+Die männlichen Schüler, deren Eltern zur Gruppe College  gehören, hatten den höchsten Notendurchschnitt (M=70,4, sd=14,6, n=292).
+
+
+## Profildiagramm
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Geschlecht, y=Mathematiknote, group=Bildungsgrad_der_Eltern, col=Bildungsgrad_der_Eltern))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Geschlecht", y="Mathematiknote [%]")+
+  theme_classic()
+```
+
+```{r warning=FALSE}
+ggplot(df, aes(x=Bildungsgrad_der_Eltern, y=Mathematiknote, group=Geschlecht, col=Geschlecht))+
+  stat_summary(fun.y = mean, geom="point", size=3)+
+  stat_summary(fun.y = mean, geom="line")+
+  stat_summary(fun.data = mean_cl_normal, geom="errorbar",width=.2, size=.25)+
+  labs(x="Bildungsgrad der Eltern", y="Mathematiknote [%]")+
+  theme_classic()+
+   theme(axis.text.x = element_text(angle = 10, vjust = 0.40, hjust=0.50))
+```
+
+Im modifizierten Modell erkennt man einen globalen Effekt von Geschlecht und Bildungsgrad der Eltern auf die
+Mathematiknoten der Schüler.
+
+## Levene -Test 
+
+
+Der Levene-Test prüft die Nullhypothese, dass die Varianzen der Gruppen sich nicht unterscheiden. Ist der Levene-Test nicht signifikant, so kann von homogenen Varianzen ausgegangen. Wäre der Levene-Test jedoch signifikant, so wäre eine der Grundvoraussetzungen der Varianzanalyse verletzt. Gegen leichte Verletzungen gilt die Varianzanalyse als robust; vor allem bei genügend grossen und etwa gleich grossen Gruppen sind Verletzungen nicht problematisch. Bei ungleich grossen Gruppen führt eine starke Verletzung der Varianzhomogenität zu einer Verzerrung des F-Tests. Alternativ können dann auf den Brown-Forsythe-Test oder den Welch-Test zurückgegriffen werden. Dabei handelt es sich um adjustierte F-Tests.
+
+```{r warning=FALSE}
+leveneTest(Mathematiknote ~ Geschlecht*Bildungsgrad_der_Eltern, data = df, center = "mean")
+```
+Der Levene-Test ist nicht signifikant (F(3, 996) = 0.9096 , p =0.4357 >0.05 ), 
+so dass von Varianzhomogenität ausgegangen werden kann. Auf die Welch-Korrektur kann verzichtet werden.
+
+## Ergebnisse der mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+```{r warning=FALSE}
+ANOVAl <- lm(Mathematiknote ~  Geschlecht*Bildungsgrad_der_Eltern, data = df)
+ANOVA <- Anova(ANOVAl  , type = 3)
+ANOVA
+```
+
+Sowohl das Geschlecht (F(1, 996)= 20.2028, p=7.782e-06 =.000), als auch der Bildungsgrad der Eltern (F(1, 996)= 24.6609, p=8.040e-07 =.000) sind signifikant für die Prüfungsnoten in Mathematik. Der Interaktionsterm ist nicht signifikant (F(1, 996)=1.6337, p=0.2015). 
+__Die Interaktionen haben sich in der Varianzanalyse als nicht signifikant erwiesen, werden aber im Rahmen des Abschlussprojekts erwähnt__
+
+Die einzelen Paarwechselwirkungen sind im Post-Hoc- Test zu untersuchen..
+
+## Post-Hoc-Test
+
+```{r warning=FALSE}
+TukeyHSD(aov(Mathematiknote ~Geschlecht*Bildungsgrad_der_Eltern, data = df))
+```
+
+Der Post-Hoc-Test nach Tukey HSD zeigt einen signifikanten Unterschied zwischen 
+dem Geschlecht und der Mathematiknote (p=1e-7=.000). Auch zwischen dem Bildungsgrad der
+ Eltern und der Mathemaiknote des Kinds gibt es ebenfalls eine signifikanten Unterschie (p=.000).
+ 
+
+__Die Interaktionen haben sich in der Varianzanalyse als nicht signifikant erwiesen, werden aber im Rahmen des Abschlussprojekts erwähnt__
+ 
+Mit Ausnahme der Kombination weibliche Schülerinnen mit Eltern der College Gruppe mit männlichen Schülern mit Eltern in der High School Gruppe (p=0.9996651=1) sind alle 
+Interaktionstherme signifikant (p<=0.0109657).
+
+## Berechnung der Effektstärke
+
+### Partielles $\eta^2$
+
+__Die Interaktionen sind nicht signifikant, werden aber im Rahmen des Abschlussprojekts erwähnt__
+
+```{r warning=FALSE}
+
+eta <- effectsize::eta_squared(ANOVAl, partial = TRUE)
+eta
+```
+Für das Geschlecht ist das partielle $\eta^2$ 0.03. Das bedeutet 3% der 
+Variationen eines Modell, in dem das Geschlecht nicht berücksichtigt wird sind durch 
+das Geschlecht erklärbar.
+
+Für den Bildungsgrad der Eltern ist das partielle $\eta^2$ 0.03. Das bedeutet 3% der 
+Variationen eines Modell, in dem der Bildungsgrad der Eltern nicht berücksichtigt wird sind durch 
+den Bildungsgrad der Eltern erklärbar.
+
+Der Interaktionstherm hat ein partielles $\eta^2$ von 0.0016.Das bedeutet 0.16% $\approx$ 0% der 
+Variationen eines Modell, in dem der Bildungsgrad der Eltern nicht berücksichtigt wird sind durch 
+den Bildungsgrad der Eltern erklärbar.
+
+### Effektstärke
+
+$$f=\sqrt\frac{\eta^{2}}{1-\eta^{2}}=\sqrt\frac{eta^{2}}{1-eta^{2}}$$
+
+
+Um zu beurteilen, wie groß dieser Effekt ist, kann man sich an der Einteilung von Cohen (1988) orientieren:
+
+$$
+\begin{align}
+\text{Schwacher Effekt: } 0.10 &< ||f|| < 0.25             \\
+\text{Schwacher bis mittlerer Effekt: } 0.25 &= ||f||      \\
+\text{Mittlerer Effekt: } 0.25 &< ||f|| < 0.40             \\
+\text{Mittlerer bis starker Effekt: }0.40 &= ||f||         \\
+\text{Starker Effekt: } 0.40 &< ||f||        
+\end{align}
+$$
+
+```{r warning=FALSE}
+
+etas <- sqrt(eta$Eta2_partial[1]/(1-eta$Eta2_partial[1]))
+
+sprintf("Effektstärke für Geschlecht: f= %.3f also ein schwacher Effekt", etas)
+```
+
+```{r warning=FALSE}
+
+etas <- sqrt(eta$Eta2_partial[2]/(1-eta$Eta2_partial[2]))
+
+sprintf("Effektstärke für Bildungsgrad der Eltern: f= %.3f also ein schwacher Effekt", etas)
+```
+__Die Interaktionen sind nicht signifikant, werden aber im Rahmen des Abschlussprojekts erwähnt__
+
+```{r warning=FALSE}
+
+etas <- sqrt(eta$Eta2_partial[3]/(1-eta$Eta2_partial[3]))
+
+sprintf("Effektstärke für Interaktionsterm von Geschlecht und Bildungsgrad der Eltern: f= %.3f also ein kein Effekt", etas)
+```
+
+
+## Eine Aussage
+
+### Hypothesenprüfung
+
+Es zeigt sich, dass es einen Einfluss der Geschlechts auf die Mathematiknoten gibt (F(1, 996)= 20.2028, p=.000). Die weiblichen Schülerinnen haben ein etwas niedrigeres Ergebnis (M=63.63, sd=15.49, n=518) als die männlichen Schüler (M=68.73, sd=14.36, n=482) im Mathematiktest erzielt.. __H0 für den Haupteffekt A wird verworfen, H1 angenommen__.
+
+Es zeigt sich, dass es einen Einfluss des Bildungsgrads der Eltern auf die Mathematiknoten gibt (F(1, 996)= 24.6609, p=.000). Die Schüler deren Eltern zur Gruppe High School gehören haben in Matehmatik eine schlechtere Note (M=62.79, sd=15.21, n=375) als
+Schüler, deren Eltern ein College besucht haben (M=68.07, sd=14.80, n=625).  __H0 für den Haupteffekt B wird verworfen, H1 angenomme__.
+
+Der Einfluss des Interaktionsterms von Geschlecht und Bildungsgrads der Eltern auf die Mathematiknoten ist __nicht__ signifikant (F(1, 996)=1.6337, p=0.202)). __H0 für die Interaktion AxB wird beibehalten, H1 verworfen__.
+
+
+### Ergebnisse des Post-Hoc-Test __Die Interaktionen haben sich in der Varianzanalyse als nicht signifikant erwiesen, werden aber im Rahmen des Abschlussprojekts erwähnt__
+
+Der Post-Hoc-Test wurde als Tukey HSD ausgeführt. 
+
+Zwischen der Gruppe der weiblichen Schülerinnen mit Eltern in der College Gruppe (M=66,03, sd=14,68, n=333) und männlichen Schüler der High School Gruppe (M=66,16, sd=13,61, n=190) findet auch dem Post-Hoc Test keine signifikanz (p=1). Alle anderen Kombinationen sind laut Post-Hoc signifikant mit (0<= p <=.011).
+
+
+Die weiblichen Schülerinnen, deren Eltern zur Gruppe High School  gehören, hatten den niedrigsten  Notendurchschnitt (M=59,32, sd=16,01, n=185).
+Die männlichen Schüler, deren Eltern zur Gruppe High School  gehören, hatten den  Notendurchschnitt .
+Die männlichen Schüler, deren Eltern zur Gruppe College  gehören, hatten den höchsten Notendurchschnitt (M=70,4, sd=14,6, n=292).
+Die weiblichen Schülerinnen, deren Eltern zur Gruppe College  gehören, hatten den  Notendurchschnitt (M=66,03, sd=14,68, n=333).
+
+### Effektstärke
+
+Die Effektstärken sind für den Haupteffekt des Geschlechts (f = 0.173 ) und des Bildungsgrads  (f = 0.181 ) nach Cohen (1988) ein schwacher Effekt. 
+Für die Interaktion (f = 0.040 )  ergibt sich nach Cohen (1988) ein kein Effekt das deckt sich mit der  __beibehaltenen H0 für die Interaktion__.
+
+
+
+## Kopie des Datensatz löschen
+
+```{r warning=FALSE}
+df <- NULL
+```
+
+
+

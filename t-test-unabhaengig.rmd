@@ -1,0 +1,357 @@
+---
+title: "Projekt Statistik mit R (Gruppe A) - Schülerleistung in Prüfungen - t-Test Unabhaengig"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+# Beschreibung des Datensatz und der Fragestellungen
+
+## Der Datensatz
+
+-    Datensatz: https://www.kaggle.com/spscientist/students-performance-in-exams/
+
+-   Der Datensatz ist ein fiktionaler Datensatz für Data Science Übungszwecke.
+    Der Datensatz enthält Noten von 1000 Schülern in den Fächern: 
+
++ Mathematik,
++ Lesen und 
++ Schreiben 
+
+## Fragestellungen
+
+### Korrelation nach Bravais-Pearson
+
+      -   1. Gibt es eine Korrelation zwischen der Performance Scores der Studenten? 
+
+### t-Test für unabhängige Stichproben    
+    
+      -   2. Es gibt einen Unterschied im Mittelwert der Lesewerte der Schüler unter dem Einfluss von zwei Gruppen von Mittagessen und Vorbereitungskurs.  
+
+### Mehrfaktorielle Varianzanalyse (ohne Messwiederholung)
+
+      -   3. Gibt es einen Zusammenhang zwischen der Mathematiknote, dem Geschlecht des Schülers bzw. der Schülerin sowie dem Bildungsgrad der Eltern?            
+    
+    
+## Daten laden und Überblick
+
+## Bibliotheken laden
+
+```{r warning=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(car)
+library(effsize)
+library(sjstats)# veraltet effectsize stattdessen
+library(effectsize)
+library(afex)
+library(RcmdrMisc)
+```
+
+### Laden
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+dfroh <- read_csv("./StudentsPerformance.xls")
+```
+
+### Überblick
+
+```{r}
+head(dfroh)
+```
+
+```{r}
+tail(dfroh)
+```
+
+```{r}
+describe(dfroh)
+```
+
+```{r}
+summary(dfroh)
+```
+
+
+##   Data wrangling
+
+###  Spaltennamen umbenennen
+
+
+```{r}
+dfroh <- dfroh %>% #pipe 
+           rename(Geschlecht      = 'gender',
+                  EthnischeHerkunft = 'race/ethnicity',
+                  Bildungsgrad_der_Eltern   = 'parental level of education',
+                  Mittagessen = 'lunch',
+                  Vorbereitungskurs = 'test preparation course',
+                  Mathematiknote = 'math score',
+                  Lesenote = 'reading score',
+                  Schreibnote = 'writing score')
+head(dfroh)
+```
+
+```{r}
+#library(dplyr) #-> Rekodieren
+dfroh <- dfroh %>%
+mutate(Bildungsgrad_der_Eltern = factor(Bildungsgrad_der_Eltern,
+                                              levels =c("some high school", 
+                                                       "high school", 
+                                                       "some college",
+                                                       "associate's degree",
+                                                       "bachelor's degree",
+                                                       "master's degree"),
+labels = c("High School abgebrochen", "High School", "College abgebrochen", "Associate's Degree", "Bachelor's Degree", "Master's Degree")))
+head(dfroh)
+```
+
+```{r}
+dfroh <- dfroh %>%
+mutate(Geschlecht = factor(Geschlecht, levels =c("female", "male"), labels = c("F", "M")))
+head(dfroh)
+```
+
+```{r}
+dfroh <- dfroh %>%
+mutate(EthnischeHerkunft = factor(EthnischeHerkunft,
+                                              levels =c("group A", 
+                                                       "group B",
+                                                       "group C",
+                                                       "group D",
+                                                       "group E"),
+labels = c("Gruppe A", "Gruppe B", "Gruppe C", "Gruppe D", "Gruppe E")))
+head(dfroh)
+```
+
+```{r}
+dfroh <- dfroh %>%
+mutate(Mittagessen = factor(Mittagessen, levels =c("free/reduced", "standard"), labels = c("kostenlos", "Standard")))
+head(dfroh)
+```
+
+
+```{r}
+dfroh <- dfroh %>%
+mutate(Vorbereitungskurs = factor(Vorbereitungskurs, levels =c("none", "completed"), labels = c("Kein", "Abgeschlossen")))
+head(dfroh)
+```
+
+
+
+# t-Test Unabhängig (2 mal t-test: einmal mit Mittagessen und einmal mit Vorbereitungskurs)
+    
+    -   Gibt es einen Zusammenhang zwischen der Lesenote der Schüler und der Qualität des Mittagessens bzw. der                Teilnahme an einem Vorbereitungskurs? 
+    
+      -   die zwei unabhängige variable
+      
+          +   Var 1 = Mittagessen (Standard, Kostenlos)
+          +   Var 2 = Vorbereitungskurs(Kein, Abgeschlossen)
+          
+      -   die abhängige variable 
+      
+          +   Lesenote
+
+##    Aufgabenstellung
+
+1)	Hypothese 
+2)	Voraussetzungen des t-Tests für unabhängige Stichproben
+3)	Grundlegende Konzepte: Was ist t-Test für unabhängige Stichproben?
+4)	Deskriptive Statistiken
+5)	Test auf Varianzhomogenität (Levene-Test)
+6)	Ergebnisse des t-Tests für unabhängige Stichproben
+7)	Berechnung der Effektstärke
+8)	Eine Aussage
+
+
+##    1.) Hypothese
+
+          -   H1: Es gibt einen unterschied im mittelwert der Lesenote der Schüler abhängig der Qualität des             Mittagessens (Standard oder Kostenlos) bzw. der Teilnahme an einem Vorbereitungskurs.   $MS\neq MK$
+          $MK\neq MA$
+
+          -   H0: Es gibt keinen unterschied im mittelwert der Lesenote der Schüler abhängig der Qualität des            Mittagessens (Standard oder Kostenlos) bzw. der Teilnahme an einem Vorbereitungskurs. $MS=MK$, $MK=MA$
+          
+          
+    
+##    2.) Voraussetzungen des t-Tests für unabhängige Stichproben
+
+          -   Die abhängige Variable ist min. intervallskaliert -> Lesenote ist ratioskaliert
+
+          -   Es liegt eine unabhängige Variable vor, mittels der die beiden zu vergleichenden Gruppen gebildet werden. -> Mittagessen (Standard, Kostenlos), Vorbereitungskurs (kein, Abgeschlossen)
+
+          -   Das untersuchte Merkmal ist in den Grundgesamtheiten der beiden Gruppen normalverteilt -> siehe Histogramm
+
+          -   Homogenität der Varianzen: Die Gruppen kommen aus Grundgesamtheiten mit annähernd identischer Varianz -> siehe Levene-Test
+
+          -   Die einzelnen Messwerte sind voneinander unabhängig (das Verhalten einer Versuchsperson hat keinen Einfluss auf das Verhalten einer anderen) -> ist gegeben.
+    
+  
+##    Prüfung der Normalverteilung mithilfe des Histogramms
+
+###   Mittagessen
+
+```{r}
+
+dfroh %>%
+  group_by(Mittagessen) %>%
+  ggplot(aes(`Lesenote`)) + 
+  geom_histogram( binwidth=4, aes(fill=Mittagessen), color="#e9ecef", alpha=0.7 ) + # Erstelle ein Histogramm, Unterteilung, Farbe + Transparenz
+  facet_wrap(~Mittagessen)+ # Zwei Graphen
+  theme_classic()+ #Farbschema
+  labs(x="Gruppierungen", y="Anzahl") # Beschriftung
+  
+
+```
+Dien Daten sind normalverteilt.
+
+
+###   Vorbereitungskurs
+
+```{r}
+dfroh %>%
+  group_by(Vorbereitungskurs) %>%
+  ggplot(aes(`Lesenote`)) + 
+    geom_histogram( binwidth=4, aes(fill=Vorbereitungskurs), color="#e9ecef", alpha=0.7 ) + # Erstelle ein Histogramm, Unterteilung, Farbe + Transparenz
+   facet_wrap(~Vorbereitungskurs)+ # Zwei Graphen
+    theme_classic()+ #Farbschema
+    labs(x="Gruppierungen", y="Anzahl") # Beschriftung
+```
+Dien Daten sind normalverteilt.
+
+##    3.)	Grundlegende Konzepte: Was ist t-Test für unabhängige Stichproben?
+
+Der unabhängige Stichproben-T-Test ist ein Test, der zwei Gruppen auf den Mittelwert einer kontinuierlichen (dh Intervall oder Ratio) normalverteilten Variablen vergleicht. Das Modell geht davon aus, dass aufgrund des Einflusses der unabhängigen Variablen, die die beiden Gruppen unterscheidet, ein Unterschied im Mittelwert der abhängigen Variablen festgestellt wird.
+
+Die Fragestellung des t-Tests für unabhängige Stichproben wird oft so verkürzt:
+"Unterscheiden sich die Mittelwerte zweier unabhängiger Stichproben?"
+
+
+##    4.)	Deskriptive Statistiken
+
+###   Mittagessen
+
+
+```{r}
+#library(dplyr)
+dfroh %>%
+  group_by(Mittagessen) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Lesenote), Median = median(Lesenote), Standardabweichung = sd(Lesenote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+* Die Gruppengröße unterscheidet sich. Es gibt die mittelwert unterschied zwischen Kostenlos und Standard Gruppe. Die Standard-Mittagessen-Studentengruppe (M = 71.65 SD = 13.83, n = 645) punktet besser als die kostenlose-Mittagessen-Studentengruppe(M = 64.65 SD = 14.90, n = 355). Dies bedeutet, dass vielleicht Faktoren wie geringere Qualität und Quantität die Ergebnisse der Schüler beeinflussen, die das kostenlose Mittagessen einnehmen. 
+
+
+###   Vorbereitungskurs
+
+```{r}
+#library(dplyr)
+dfroh %>%
+  group_by(Vorbereitungskurs) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(Lesenote), Median = median(Lesenote), Standardabweichung = sd(Lesenote)) %>%
+  mutate_if(is.numeric, round, 2)
+```
+
+* Die Gruppengröße unterscheidet sich. Es ist mittelwert unterschied zwischen kein und Abgeschlossen Gruppe. Die abgeschlossene Vorbereitungsgruppe  (M = 73.89 SD = 13.64, n = 358) punktet höher als die keine Vorbereitungsgruppe (M = 66.53 SD = 14.46, n = 642). Es bedeutet vielleicht besser einen Vorbereitungskurs für eine bessere Punktzahl zu belegen. 
+
+
+##    5.)	Test auf Varianzhomogenität (Levene-Test)
+
+###   Mittagessen
+
+```{r}
+leveneTest(dfroh$Lesenote, dfroh$Mittagessen, center = mean)
+```
+*Also es ist zuerkennen, das Homogenität vorliegt, da der Levene-Test nicht signifikant ist. Daher können wir von gleichen Varianzen ausgehen (F(1, 998) = 1.9439, p = 0.1636).     Es ist daher nicht notwendig eine Welch-Korrektur durchzuführen.
+
+Mit Welch-Korrektur: p < 0.05 => Ergebnis Signifikant –> Varianzen heterogen
+
+Ohne Welch-Korrektur: p > 0.05 => Ergebnis nicht Signifikant –> Varianzen homogen –> H0 mit Annahme Var1=Var2
+
+###   Vorbereitungskurs
+
+```{r}
+leveneTest(dfroh$Lesenote, dfroh$Vorbereitungskurs, center = mean)
+```
+*Also es ist zuerkennen, das Homogenität vorliegt, da der Levene-Test nicht signifikant ist. Daher können wir von gleichen Varianzen ausgehen (F(1, 998) = 0.9674, p = 0.3256).     Es ist daher nicht notwendig eine Welch-Korrektur durchzuführen.
+
+Mit Welch-Korrektur: p < 0.05 => Ergebnis Signifikant –> Varianzen heterogen
+
+Ohne Welch-Korrektur: p > 0.05 => Ergebnis nicht Signifikant –> Varianzen homogen –> H0 mit Annahme Var1=Var2
+
+
+##    6.)	Ergebnisse des t-Tests für unabhängige Stichproben
+
+Eine ungerichtete Hypothese verwendet wird mit einem Sig.-Niveau von 0.05,ist “con= 0.95, alt =”two.sided"" zu verwenden.
+
+“Var.eq =True” bedeutet, dass die Varianzen homogen (gleich) sind, bzw. “Var.eq =False” das die Varianzen hetrogen sind.
+
+###   Mittagessen
+
+```{r}
+test1<- t.test(dfroh$Lesenote~dfroh$Mittagessen, var.eq = TRUE, con= 0.95, alt = "two.sided")
+test1
+```
+Die Teststatistik betraegt t = -7.4511 und der zugehörige Signifikanzwert p = 2.003e-13. Damit ist der Unterschied signifikant: Mittelwerte der beiden Varianten der Mittagessen unterscheiden sich (t(998) = -7.4511, p = 2.003e-13, n= 1000). 
+
+###   Vorbereitungskurs
+
+```{r}
+test1<- t.test(dfroh$Lesenote~dfroh$Vorbereitungskurs, var.eq = TRUE, con= 0.95, alt = "two.sided")
+test1
+```
+Die Teststatistik betraegt -7.8717 und der zugehörige Signifikanzwert 9.082e-15. Damit ist der Unterschied signifikant: Mittelwerte der beiden Arten der Vorbereitungskurs unterscheiden sich (t(998) = -7.8717, p = 9.082e-15, n= 1000)
+
+##    7.)	Berechnung der Effektstärke
+
+####   Bei ungleichgroßen Gruppen
+
+$$
+d = (\frac {n1+n2}{n1*n2}+ 0.5*d^2/df) * (\frac{(n1+n2}{df})
+$$
+Interpretation von d nach Cohen (1988):
+
+$$
+\begin{align}
+\text{Schwacher Effekt: } 0.20 &< ||d|| < 0.50             \\
+\text{Schwacher bis mittlerer Effekt: } 0.50 &= ||d||      \\
+\text{Mittlerer Effekt: } 0.50 &< ||d|| < 0.80             \\
+\text{Mittlerer bis starker Effekt: }0.80 &= ||d||         \\
+\text{Starker Effekt: } 0.80 &< ||d||        
+\end{align}
+$$
+###   Mittagessen
+
+```{r}
+library(effsize)
+
+cohen.d(d = dfroh$Lesenote, f= dfroh$Mittagessen)
+```
+Damit entspricht eine Effektstaerke von ||-0.4924065|| einem Schwacher Effekt.
+
+
+###   Vorbereitungskurs
+
+
+```{r}
+library(effsize)
+
+cohen.d(d = dfroh$Lesenote, f= dfroh$Vorbereitungskurs)
+```
+Damit entspricht eine Effektstaerke von ||-0.5192273|| einem mittlerer Effekt.
+
+
+##    8.)	Eine Aussage
+
+
+
+Es gibt einen signifikanten Unterschied (t(998) = -7.4511, p = 2.003e-13, n= 1000) zwischen der Gruppe mit standard Mittagessen (M = 71.65 SD = 13.83, n = 645) und der Gruppe mit Kostenlose Mittagessen (M = 64.65 SD = 14.90, n = 355). Die standard Mittagessen Gruppe ist besser als die Kostenlose Mittagessen Gruppe.Die Effektstärke liegt bei 0.4924065 und entspricht damit einem Schwachen Effekt nach Cohen (1988).
+
+Es gibt einen signifikanten Unterschied (t(998) = -7.8717, p = 9.082e-15, n= 1000) zwischen der Gruppe mit abgeschlossenen Vorbereitungskurs ((M = 73.89 SD = 13.64, n = 358)) und der Gruppe ohne Teilnahme am Vorbereitungskurs (M = 66.53 SD = 14.46, n = 642). Die abgeschlossenen Vorbereitungskurs Gruppe ist besser als die ohne Teilnahme am Vorbereitungskurs Gruppe.Die Effektstärke liegt bei 0.5192273 und entspricht damit einem Mittleren Effekt nach Cohen (1988).
+
+
+D.H. für beide t-Test wird H0 abgelehnt und H1 angenommen.
