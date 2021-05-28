@@ -1,0 +1,221 @@
+---
+title: "Abschlussprojekt: Korrelation nach Bravais-Pearson"
+output: html_notebook
+---
+
+"Gibt es einen Zusammenhang zwischen zwei Variablen?"
+
+## Bibliotheken laden
+
+```{r warning=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(car)
+library(effsize)
+library(sjstats)# veraltet effectsize stattdessen
+library(effectsize)
+library(afex)
+library(RcmdrMisc)
+```
+
+### Laden
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+dfroh <- read_csv("./StudentsPerformance.xls")
+```
+
+### Überblick
+
+```{r}
+head(dfroh)
+```
+
+```{r}
+tail(dfroh)
+```
+
+```{r}
+describe(dfroh)
+```
+
+```{r}
+summary(dfroh)
+```
+
+
+##   Data wrangling
+
+###  Spaltennamen umbenennen
+
+
+```{r}
+dfroh <- dfroh %>% #pipe 
+           rename(Geschlecht      = 'gender',
+                  EthnischeHerkunft = 'race/ethnicity',
+                  Bildungsgrad_der_Eltern   = 'parental level of education',
+                  Mittagessen = 'lunch',
+                  Vorbereitungskurs = 'test preparation course',
+                  Mathematiknote = 'math score',
+                  Lesenote = 'reading score',
+                  Schreibnote = 'writing score')
+head(dfroh)
+```
+
+```{r}
+#library(dplyr) #-> Rekodieren
+dfroh <- dfroh %>%
+mutate(Bildungsgrad_der_Eltern = factor(Bildungsgrad_der_Eltern,
+                                              levels =c("some high school", 
+                                                       "high school", 
+                                                       "some college",
+                                                       "associate's degree",
+                                                       "bachelor's degree",
+                                                       "master's degree"),
+labels = c("High School abgebrochen", "High School", "College abgebrochen", "Associate's Degree", "Bachelor's Degree", "Master's Degree")))
+head(dfroh)
+```
+
+```{r}
+dfroh <- dfroh %>%
+mutate(Geschlecht = factor(Geschlecht, levels =c("female", "male"), labels = c("F", "M")))
+head(dfroh)
+```
+
+```{r}
+dfroh <- dfroh %>%
+mutate(EthnischeHerkunft = factor(EthnischeHerkunft,
+                                              levels =c("group A", 
+                                                       "group B",
+                                                       "group C",
+                                                       "group D",
+                                                       "group E"),
+labels = c("Gruppe A", "Gruppe B", "Gruppe C", "Gruppe D", "Gruppe E")))
+head(dfroh)
+```
+
+```{r}
+dfroh <- dfroh %>%
+mutate(Mittagessen = factor(Mittagessen, levels =c("free/reduced", "standard"), labels = c("kostenlos", "Standard")))
+head(dfroh)
+```
+
+
+```{r}
+dfroh <- dfroh %>%
+mutate(Vorbereitungskurs = factor(Vorbereitungskurs, levels =c("none", "completed"), labels = c("Kein", "Abgeschlossen")))
+head(dfroh)
+```
+
+# Korrelation nach Bravais-Pearson
+
+## 1	Hypothese 
+  +H0: Es gibt keinen Zusammenhang zwischen der Lesenote und der Mathematiknote
+  +H1: Es gibt einen Zusammenhang zwischen der Lesenote und der Mathematiknote
+
+## 2. Voraussetzungen
+Die Variablen sind mindestens intervallskaliert -> Ja, beide Varibalen sind ratioskaliert, Lesenote und Mathematiknote
+Die Variablen sind normalverteilt (n>30)-> siehe Histogramm
+Der untersuchte Zusammenhang zwischen den Variablen muss linear sein -> siehe Streudiagramm
+
+### Normalverteilung:
+
+```{r}
+x <- dfroh$Mathematiknote 
+
+h<-hist(x, breaks=10, col="lightblue", xlab="Schulerfolg",
+   main="Histogram der Mathematiknote",
+   ylab= "Anzahl")
+xfit<-seq(min(x),max(x),length=400)
+yfit<-dnorm(xfit,mean=mean(x),sd=sd(x))
+yfit <- yfit*diff(h$mids[1:2])*length(x)
+lines(xfit, yfit, col="blue", lwd=2) 
+```
+
+Es liegt Normalverteilung bei der Mathematiknote vor.
+
+```{r}
+x <- dfroh$Lesenote 
+
+h<-hist(x, breaks=10, col="lightblue", xlab="Schulerfolg",
+   main="Histogram der Lesenote",
+   ylab= "Anzahl",ylim = c(0,270))
+xfit<-seq(min(x),max(x),length=400)
+yfit<-dnorm(xfit,mean=mean(x),sd=sd(x))
+yfit <- yfit*diff(h$mids[1:2])*length(x)
+lines(xfit, yfit, col="blue", lwd=2) 
+```
+
+Es liegt Normalverteilung bei der Lesenote vor.
+
+
+# 3.	Grundlegende Konzepte: Was ist Pearson?
+
+Die Korrelation, auch bivariate Korrelation oder Produkt-Moment-Korrelation genannt, beschreibt den Zusammenhang von zwei intervallskalierten Merkmalen/Variablen einer Zufallsstichprobe. Eine Möglichkeit, die Stärke des Zusammenhangs zu bestimmen, ist die Berechnung des Korrelationskoeffizienten r nach Bravais und Pearson. Voraussetzung ist hierbei, dass es sich um einen linearen Zusammenhang zwischen den analysierten Merkmalen handelt. Zusätzlich wird hier ein ungerichteter Zusammenhang untersucht, d.h. die Variablen sind unabhängig voneinander und folglich werden keine kausalen Aussagen gemacht.
+
+Der Korrelationskoeffizient r kann Werte zwischen -1 und +1 annehmen und ist unabhängig von der Maßeinheit. Ein Wert von -1 beschreibt eine perfekt negative Korrelation und ein Wert von +1 eine perfekt positive Korrelation. Bei r = 0 liegt kein linearer Zusammenhang zwischen den Variablen vor.
+Achtung: Es kann dennoch ein Zusammenhang bestehen. Dieser ist dann allerdings nicht linear, sondern z.B. exponentiell. Um dies zu prüfen, müssen dann andere Tests angeschlossen werden.
+
+Bei einer Korrelation wird der ungerichtete lineare Zusammenhang zweier Variablen untersucht. "Ungerichtet" bedeutet, dass nicht von einer abhängigen und einer unabhängigen Variable gesprochen wird. Es werden folglich keine kausalen Aussagen gemacht. Es besteht das Risiko einer Scheinkorrelation.
+
+# 4. Grafische Veranschaulichung des Zusammenhangs (Streudiagramm)
+
+```{r}
+library(car)
+```
+
+```{r}
+scatterplot(dfroh$Lesenote ~ dfroh$Mathematiknote)
+```
+
+Der Zusammenhang zwischen der Mathematiknote und der Lesenote ist positiv linear, aber es streut. Das Streudiagramm in der Abbildung zeigt eine tendenziell positive lineare Beziehung zwischen den beiden Variablen. Das heisst, die beiden Variablen korrelieren vermutlich. Da die Korrelationsanalyse einen ungerichteten Zusammenhang untersucht, lässt er sich auf zwei Weisen ausformulieren: Je besser die Mathematiknote, desto besser die Lesenote, oder je besser die Lesenote, desto besser die Mathematiknote.
+
+
+# 5.Deskriptive Statistik
+```{r}
+library(psych)
+```
+```{r}
+describe(dfroh)
+```
+
+Abbildung können die Mittelwerte und Standardabweichungen der Variablen Lesenote und Mathematiknote abgelesen werden. Im Mittel liegt die Mathematiknote bei 66.09 Punkten (SD = 15.16,n=1000)). Die Punktzahl der Lesenote lag durchschnittlich bei 69.17 (SD = 14.60, n=1000).
+
+# 6.Ergebnisse der Korrelationsanalyse
+
+```{r}
+test <- cor.test(dfroh$Mathematiknote,dfroh$Lesenote)
+test
+```
+Der R-Output in Abbildung gibt den Korrelationskoeffizienten sowie den p-Wert (Signifikanz) und die Stichprobengrösse n wieder. Es wird ersichtlich, dass ein Zusammenhang vorliegt zwischen Lesenote und Mathematiknote (r = 0.8175797, p < 2.2e-16, n = 1000). Da r einen positiven Wert aufweist, kann von einem positiven linearen und signifikanter Zusammenhang zwischen Lesenote und Mathematiknote ausgegangen werden. Das bedeutet: Je besser die Mathematiknote, detso besser war die Lesenote und umgekehrt.
+
+Hinweis: “p-value < 2.2e-16”: Diese Zahle hat umgerechnet 16 Nullen 0.000000000000000022. Aus der deskriptive Statistik kann man die Anzahl der Datensatze entnehmen.
+
+# 7.Berechnung des Bestimmtheitsmasses
+
+Aus der Korrelation lässt sich durch Quadrieren das Bestimmtheitsmass berechnen:
+
+```{r}
+rbestimmt <- test$estimate^2*100
+sprintf("Das Bestimmtheitsmaß liegt bei %.2f Prozent.", rbestimmt)
+```
+Wird dieser Wert mit 100 multipliziert, so ergibt sich ein Prozentwert. Dieser gibt an, welcher Anteil der Varianz in beiden Variablen durch gemeinsame Varianzanteile determiniert wird. Für das vorliegende Beispiel beträgt der Anteil der gemeinsamen Varianz 66.84%.
+
+# 8.Berechnung der Effektstärke
+
+```{r}
+sprintf("Die Effektstärke liegt bei %.4f.",test$estimate)
+```
+Damit entspricht ein Korrelationskoeffizient(r) von 0.8175797 einem starken Effekt.
+
+
+
+# 9. Aussage
+
+Die Lesenote und die Mathematiknote korrelieren signifikant (r = 0.8175797, p <2.2e-16, n = 1000). Je besser die Lesenote, desto besser ist die Mathematiknote und umgekehrt. 66.84 % der Streuung der gemeinsamen Varianz kann durch Lesenote und Mathematiknote erklärt werden. Dabei handelt es sich mit 0.8175797 nach Cohen (1992) um einen starken Effekt. H0 kann verworfen werden.
+
+
+
+
